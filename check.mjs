@@ -170,18 +170,47 @@ async function setDate(page, keywords, labelText, value) {
   return actual === value;
 }
 
-async function setPartyNumber(page, labelText, value) {
-  // Best effort only; the run continues even if this fails.
+async function setPartyNumber(page, keywords, labelText, value) {
+  const kws = Array.isArray(keywords) ? keywords : [keywords];
+  // Prefer a <select> (KOA's Adults / Kids are dropdowns defaulting to 0).
+  for (const kw of kws) {
+    for (const attr of ["id", "name", "aria-label"]) {
+      const sel = page.locator(`select[${attr}*="${kw}" i]`).first();
+      if (await sel.count()) {
+        try {
+          await sel.selectOption(String(value));
+          return true;
+        } catch (e) {
+          console.warn(`selectOption failed on ${attr}*="${kw}":`, e.message);
+        }
+      }
+    }
+  }
+  // Otherwise fall through to a plain input.
+  for (const kw of kws) {
+    for (const attr of ["id", "name", "placeholder", "aria-label"]) {
+      const inp = page.locator(`input[${attr}*="${kw}" i]`).first();
+      if (await inp.count()) {
+        await inp.fill(String(value)).catch(() => {});
+        return true;
+      }
+    }
+  }
+  // Last resort: find by visible label.
   try {
-    const input = page
-      .locator(`xpath=//*[contains(normalize-space(.),"${labelText}")]/following::input[1]`)
+    const byLabel = page
+      .locator(`xpath=//*[contains(normalize-space(.),"${labelText}")]/following::*[self::input or self::select][1]`)
       .first();
-    if (await input.count()) {
-      await input.fill(String(value)).catch(() => {});
+    if (await byLabel.count()) {
+      const tag = await byLabel.evaluate((el) => el.tagName.toLowerCase());
+      if (tag === "select") await byLabel.selectOption(String(value)).catch(() => {});
+      else await byLabel.fill(String(value)).catch(() => {});
+      return true;
     }
   } catch (e) {
     console.warn(`Party field "${labelText}" not set:`, e.message);
   }
+  return false;
 }
 
 async function clickByText(page, texts) {
@@ -260,8 +289,8 @@ async function run() {
   // Fill the Step 1 form.
   const okIn = await setDate(page, SELECTORS.checkinKeywords, SELECTORS.checkinLabel, CONFIG.arrival);
   const okOut = await setDate(page, SELECTORS.checkoutKeywords, SELECTORS.checkoutLabel, CONFIG.departure);
-  await setPartyNumber(page, "Adults", CONFIG.adults);
-  await setPartyNumber(page, "Kids", CONFIG.kids);
+  await setPartyNumber(page, ["adults"], "Adults", CONFIG.adults);
+  await setPartyNumber(page, ["kids"], "Kids", CONFIG.kids);
   console.log("Dates set:", { arrival: okIn, departure: okOut });
 
   // Advance to the Sites step.
