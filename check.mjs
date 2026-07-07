@@ -7,8 +7,11 @@
 //
 // Everything you might tweak is in CONFIG or in the SELECTORS section below.
 
-import { chromium } from "playwright";
+import { chromium } from "playwright-extra";
+import stealth from "puppeteer-extra-plugin-stealth";
 import fs from "node:fs";
+
+chromium.use(stealth());
 
 const CONFIG = {
   // The clean lodging entry page for the campground. No token needed.
@@ -41,8 +44,21 @@ const CONFIG = {
   fromEmail: process.env.FROM_EMAIL || "onboarding@resend.dev",
 
   reAlertHours: Number(process.env.REALERT_HOURS || 6),
+  // How long to wait between "monitor is blind" alerts, so a persistent
+  // Cloudflare block does not spam your phone.
+  blindAlertHours: Number(process.env.BLIND_ALERT_HOURS || 12),
   stateFile: "state.json",
 };
+
+// Text that means we hit a Cloudflare bot-check interstitial instead of the
+// Sites step. When present, the "available: false" result is meaningless.
+const CLOUDFLARE_MARKERS = [
+  "performing security verification",
+  "just a moment",
+  "checking your browser",
+  "cloudflare",
+  "ray id:",
+];
 
 // ---------------------------------------------------------------------------
 // SELECTORS  (if the first test run fails, this is the block to adjust)
@@ -66,7 +82,7 @@ function loadState() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG.stateFile, "utf8"));
   } catch {
-    return { available: false, lastAlert: null };
+    return { available: false, lastAlert: null, lastBlindAlert: null };
   }
 }
 function saveState(state) {
@@ -239,17 +255,58 @@ async function run() {
   await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
   await page.waitForTimeout(7000);
 
-  const text = await page.evaluate(() => document.body.innerText);
+  // If we hit a Cloudflare interstitial, give it a chance to auto-clear
+  // (stealth defeats the easy challenges within a few seconds).
+  let text = await page.evaluate(() => document.body.innerText);
+  if (isBlocked(text)) {
+    console.log("Cloudflare interstitial detected, waiting for it to clear...");
+    await page
+      .waitForFunction(
+        (markers) => {
+          const t = (document.body.innerText || "").toLowerCase();
+          return !markers.some((m) => t.includes(m));
+        },
+        CLOUDFLARE_MARKERS,
+        { timeout: 45000 }
+      )
+      .catch(() => {});
+    await page.waitForTimeout(3000);
+    text = await page.evaluate(() => document.body.innerText);
+  }
+
   fs.writeFileSync("last-run-step2.txt", text);
   fs.writeFileSync("last-run-step2.html", await page.content());
   await page.screenshot({ path: "last-run-step2.png", fullPage: true });
 
-  const result = decideAvailability(text);
-  console.log("Result:", result);
-
   const prev = loadState();
   const now = new Date();
   const bookUrl = CONFIG.startUrl;
+
+  // Still blocked? Send a rate-limited "monitor is blind" alert so you know
+  // to move the checker to a residential IP, then exit without touching the
+  // availability flag.
+  if (isBlocked(text)) {
+    console.log("Result: BLOCKED by Cloudflare");
+    const stale =
+      !prev.lastBlindAlert ||
+      now - new Date(prev.lastBlindAlert) > CONFIG.blindAlertHours * 3600 * 1000;
+    if (stale) {
+      const title = "KOA monitor is BLIND (Cloudflare block)";
+      const body =
+        "The GitHub Actions runner is being served Cloudflare's bot-check page, " +
+        "so I can't see real cabin availability. Move the checker to your own machine.";
+      console.log("ALERTING (blind)");
+      await sendNtfy(title, body, bookUrl);
+      saveState({ ...prev, lastBlindAlert: now.toISOString() });
+    } else {
+      saveState({ ...prev });
+    }
+    await browser.close();
+    return;
+  }
+
+  const result = decideAvailability(text);
+  console.log("Result:", result);
 
   let shouldAlert = false;
   if (result.available) {
@@ -270,12 +327,21 @@ async function run() {
        <p><a href="${bookUrl}">Open the booking page and grab it fast.</a></p>
        <p style="color:#888">${result.reason}</p>`
     );
-    saveState({ available: true, lastAlert: now.toISOString() });
+    saveState({ ...prev, available: true, lastAlert: now.toISOString() });
   } else {
-    saveState({ available: result.available, lastAlert: result.available ? prev.lastAlert : null });
+    saveState({
+      ...prev,
+      available: result.available,
+      lastAlert: result.available ? prev.lastAlert : null,
+    });
   }
 
   await browser.close();
+}
+
+function isBlocked(text) {
+  const lower = (text || "").toLowerCase();
+  return CLOUDFLARE_MARKERS.some((m) => lower.includes(m));
 }
 
 run().catch((e) => {
