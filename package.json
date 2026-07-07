@@ -1,0 +1,12 @@
+{
+  "name": "koa-cabin-watch",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
