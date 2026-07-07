@@ -150,8 +150,24 @@ async function setDate(page, keywords, labelText, value) {
   } catch {
     await input.fill(value).catch(() => {});
   }
-  await page.keyboard.press("Escape").catch(() => {});
-  return true;
+  // Commit the value. Escape (previously here) cancels a jQuery UI datepicker
+  // without applying — Tab blurs the field which commits + fires change.
+  await input.press("Tab").catch(() => {});
+  // Belt-and-suspenders: force the value + fire input/change/blur so anything
+  // listening (jQuery UI, React, plain vanilla) picks up the update.
+  await input
+    .evaluate((el, val) => {
+      if (el.value !== val) el.value = val;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
+    }, value)
+    .catch(() => {});
+  const actual = await input.inputValue().catch(() => "");
+  if (actual !== value) {
+    console.warn(`Date field "${labelText}" wanted ${value} but reads ${actual}`);
+  }
+  return actual === value;
 }
 
 async function setPartyNumber(page, labelText, value) {
