@@ -28,6 +28,12 @@ const CONFIG = {
   adults: process.env.ADULTS || "2",
   kids: process.env.KIDS || "0",
 
+  // KOA validates these even for cabins. Cabin bookings don't actually use
+  // equipment, but the form refuses to submit until they're set. Automobile +
+  // No pets is the safe pick.
+  equipmentType: process.env.EQUIPMENT_TYPE || "A",
+  pets: process.env.PETS || "No",
+
   // Catches all three types you want (they all contain this phrase):
   // Deluxe Cabin (full bath with shower), Camping Cabin (full bath with shower),
   // Deluxe Cabin (full bath with shower), Patio.
@@ -291,6 +297,8 @@ async function run() {
   const okOut = await setDate(page, SELECTORS.checkoutKeywords, SELECTORS.checkoutLabel, CONFIG.departure);
   await setPartyNumber(page, ["adults"], "Adults", CONFIG.adults);
   await setPartyNumber(page, ["kids"], "Kids", CONFIG.kids);
+  await setPartyNumber(page, ["equipmenttype", "equipment"], "Equipment", CONFIG.equipmentType);
+  await setPartyNumber(page, ["pets"], "Pets", CONFIG.pets);
   console.log("Dates set:", { arrival: okIn, departure: okOut });
 
   // Advance to the Sites step.
