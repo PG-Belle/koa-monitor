@@ -279,7 +279,9 @@ async function run() {
   const page = await context.newPage();
 
   console.log("Opening:", CONFIG.startUrl);
-  await page.goto(CONFIG.startUrl, { waitUntil: "networkidle", timeout: 60000 });
+  // networkidle is flaky on koa.com (analytics/chat keep the network chatty);
+  // fall back to domcontentloaded and let the existing settle-sleeps cover render time.
+  await page.goto(CONFIG.startUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(4000);
 
   // If the date fields are not on this page, click an entry button to reach them.
@@ -305,7 +307,7 @@ async function run() {
   const submitted = await clickByText(page, SELECTORS.submitButtonText);
   console.log("Submit button clicked:", submitted);
 
-  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
   await page.waitForTimeout(7000);
 
   // If we hit a Cloudflare interstitial, give it a chance to auto-clear
