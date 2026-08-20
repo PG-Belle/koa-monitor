@@ -53,6 +53,11 @@ const CONFIG = {
   // How long to wait between "monitor is blind" alerts, so a persistent
   // Cloudflare block does not spam your phone.
   blindAlertHours: Number(process.env.BLIND_ALERT_HOURS || 12),
+  // Flap filter: require this many consecutive "available" reads before
+  // alerting. koa.com briefly reports the target cabins as bookable around
+  // midnight Pacific and flips back within one 15-min cycle, so a single
+  // positive is not trustworthy.
+  confirmRuns: Number(process.env.CONFIRM_RUNS || 2),
   stateFile: "state.json",
 };
 
@@ -88,7 +93,7 @@ function loadState() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG.stateFile, "utf8"));
   } catch {
-    return { available: false, lastAlert: null, lastBlindAlert: null };
+    return { available: false, lastAlert: null, lastBlindAlert: null, consecutiveAvailable: 0 };
   }
 }
 function saveState(state) {
@@ -363,8 +368,18 @@ async function run() {
   const result = decideAvailability(text);
   console.log("Result:", result);
 
+  const consecutiveAvailable = result.available
+    ? (prev.consecutiveAvailable || 0) + 1
+    : 0;
+  const confirmed = consecutiveAvailable >= CONFIG.confirmRuns;
+  if (result.available && !confirmed) {
+    console.log(
+      `Positive read ${consecutiveAvailable}/${CONFIG.confirmRuns} — holding alert until confirmed.`
+    );
+  }
+
   let shouldAlert = false;
-  if (result.available) {
+  if (result.available && confirmed) {
     const transitioned = !prev.available;
     const stale =
       prev.lastAlert && now - new Date(prev.lastAlert) > CONFIG.reAlertHours * 3600 * 1000;
@@ -382,11 +397,12 @@ async function run() {
        <p><a href="${bookUrl}">Open the booking page and grab it fast.</a></p>
        <p style="color:#888">${result.reason}</p>`
     );
-    saveState({ ...prev, available: true, lastAlert: now.toISOString() });
+    saveState({ ...prev, available: true, consecutiveAvailable, lastAlert: now.toISOString() });
   } else {
     saveState({
       ...prev,
       available: result.available,
+      consecutiveAvailable,
       lastAlert: result.available ? prev.lastAlert : null,
     });
   }

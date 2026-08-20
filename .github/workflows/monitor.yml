@@ -42,10 +42,10 @@ jobs:
         run: npm run check
 
       - name: Save debug screenshots + html
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: last-run
+          name: last-run-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             last-run-step1.png
             last-run-step1.html
@@ -53,6 +53,7 @@ jobs:
             last-run-step2.html
             last-run-step2.txt
           retention-days: 3
+          if-no-files-found: ignore
 
       - name: Persist state
         if: always()
