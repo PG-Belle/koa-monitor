@@ -1,5 +1,5 @@
 {
-  "available": true,
-  "lastAlert": "2026-08-23T08:02:02.207Z",
-  "consecutiveAvailable": 2
+  "available": false,
+  "lastAlert": null,
+  "consecutiveAvailable": 0
 }
