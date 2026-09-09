@@ -39,6 +39,7 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          CONFIRM_RUNS: "3"
         run: npm run check
 
       - name: Save debug screenshots + html
