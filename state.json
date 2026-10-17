@@ -1,5 +1,5 @@
 {
-  "available": false,
+  "available": true,
   "lastAlert": null,
-  "consecutiveAvailable": 0
+  "consecutiveAvailable": 1
 }
